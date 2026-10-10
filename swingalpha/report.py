@@ -106,9 +106,9 @@ def show(df: pd.DataFrame, title: str, n: int = 50):
 
 def save(df_ultra: pd.DataFrame, df_swing: pd.DataFrame, mode: str, asof: str) -> dict:
     ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    p1 = PRED_DIR / f"{asof}_{mode}_超短_{ts}.csv"
-    p2 = PRED_DIR / f"{asof}_{mode}_波段_{ts}.csv"
-    _format_floats(_sector_last(df_ultra), as_str=False).to_csv(p1, index=False, encoding="utf-8-sig")
-    _format_floats(_sector_last(df_swing), as_str=False).to_csv(p2, index=False, encoding="utf-8-sig")
+    p1 = PRED_DIR / f"{asof}_{mode}_超短_{ts}.xlsx"
+    p2 = PRED_DIR / f"{asof}_{mode}_波段_{ts}.xlsx"
+    _format_floats(_sector_last(df_ultra), as_str=False).to_excel(p1, index=False)
+    _format_floats(_sector_last(df_swing), as_str=False).to_excel(p2, index=False)
     log.info(f"结果已留档：{p1.name} / {p2.name}")
     return {"ultra": str(p1), "swing": str(p2)}

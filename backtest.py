@@ -34,10 +34,14 @@ def main():
     ap.add_argument("--cpu", action="store_true", help="强制 CPU 后端")
     ap.add_argument("--codes", nargs="*", default=None, help="指定股票（调试）")
     ap.add_argument("--start", default=None, help=f"回测起点 YYYY-MM-DD，默认 {BACKTEST['start']}")
+    ap.add_argument("--bypass-season", action="store_true", help="实验：不区分大盘四季，每天都买（绕过冬天门控）")
+    ap.add_argument("--first-day-loss-exit", action="store_true", help="实验：波段入场当天收盘亏损即平仓")
     args = ap.parse_args()
     try:
         run_backtest(force_cpu=args.cpu, codes=args.codes,
-                     start=args.start or BACKTEST["start"])
+                     start=args.start or BACKTEST["start"],
+                     bypass_season=args.bypass_season,
+                     first_day_loss_exit=args.first_day_loss_exit)
     except RuntimeError as e:
         log.error(str(e))
         sys.exit(2)

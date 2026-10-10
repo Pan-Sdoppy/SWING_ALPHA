@@ -3,7 +3,7 @@
 落盘存储：
 - data/raw/{code}.parquet        每只股票独立日线（前复权），单股失败互不影响
 - data/raw/_meta.json            每只股票最新日期/行数/名称/行业，秒级判断增量；可从文件重建
-- data/raw/_stock_list.csv       股票列表缓存(7天)，API失败回退过期缓存，读入仍强制过滤
+- data/raw/_stock_list.xlsx      股票列表缓存(7天)，API失败回退过期缓存，读入仍强制过滤
 - data/indices/{idx}.parquet     指数日线
 - data/processed/factor_data.parquet  因子计算缓存
 """
@@ -111,7 +111,7 @@ def load_stock_list_cache():
     if not STOCK_LIST_PATH.exists():
         return None, None
     try:
-        df = pd.read_csv(STOCK_LIST_PATH, dtype={"code": str})
+        df = pd.read_excel(STOCK_LIST_PATH, dtype={"code": str})
         mtime = datetime.fromtimestamp(STOCK_LIST_PATH.stat().st_mtime)
         age = (datetime.now() - mtime).total_seconds() / 86400.0
         df = df[df["code"].map(is_main_board)]
@@ -126,8 +126,8 @@ def load_stock_list_cache():
 def save_stock_list(df: pd.DataFrame):
     if df is None or len(df) == 0:
         return
-    tmp = str(STOCK_LIST_PATH) + ".tmp"
-    df.to_csv(tmp, index=False, encoding="utf-8-sig")
+    tmp = str(STOCK_LIST_PATH) + ".tmp.xlsx"
+    df.to_excel(tmp, index=False)
     os.replace(tmp, STOCK_LIST_PATH)
 
 

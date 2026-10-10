@@ -73,15 +73,15 @@ SWING_ALPHA/
 │  ├─ data_pipeline.py       # update 的增量/重试/重连/补下载编排
 │  ├─ engine.py              # predict 的盘中/盘后编排
 │  ├─ backtest_engine.py     # 回测引擎：逐日无未来函数信号、成本、持仓/topN网格、绩效
-│  ├─ report.py              # 控制台表格 + CSV 留档（所属板块列永远最右）
+│  ├─ report.py              # 控制台表格 + Excel 留档（所属板块列永远最右）
 │  └─ strategies/
 │     ├─ ultra_short.py      # 早餐隔日溢价 + 缩量连板
 │     └─ swing.py            # A杀低吸/底部簇/趋势/箱体回踩
 ├─ documents/                # 你的原始方法论文档（程序只读，不改动）
 ├─ data/
-│  ├─ raw/                   # {code}.parquet、_meta.json、_stock_list.csv、_industry_map.json、_baostock_usage.json
+│  ├─ raw/                   # {code}.parquet、_meta.json、_stock_list.xlsx、_industry_map.json、_baostock_usage.json
 │  ├─ indices/               # 上证/沪深300/中证1000 日线
-│  ├─ processed/             # factor_data.parquet、predictions/*.csv、backtests/*.csv
+│  ├─ processed/             # factor_data.parquet、predictions/*.xlsx、backtests/*.xlsx、stock_analysis/*.xlsx
 │  └─ intraday/              # 盘中临时快照（不进正式增量）
 └─ logs/
 ```
@@ -130,7 +130,7 @@ python predict.py --codes 603396 # 指定股票调试
 
 输出：**【超短·隔日套利】** 一张表 + **【波段·超跌拐头】** 按类型分表（A杀低吸 / 趋势波段），
 `所属板块`列固定最右；predict 模式即使市场冬天也展示全部候选（备注标注环境），末尾附统一选股建议
-（仓位/风险提示）；CSV 留档 `data/processed/predictions/`。
+（仓位/风险提示）；Excel 留档 `data/processed/predictions/`。
 
 ### 3. 历史回测（2017 至今，严格无未来函数，写死最优参数）
 数据从 2016 年起下载（给 250 日因子留预热），回测从 2017 年开始：
@@ -146,7 +146,7 @@ python backtest.py --start 2020-06-01      # 自定义起点
   止损/持有期/退出全部只用入场之后的行情；t+1开盘已跌破止损视为支撑破位、放弃成交（不接飞刀）。
 - **成本**：买卖佣金各 0.025%、卖出印花税 0.05%、双边滑点各 0.05%。
 - **输出**：【超短】与【波段】各一张总表 + **2017-2025 各年度** 与 **2026 各月度** 明细
-  （交易数/胜率/平均收益/最大回撤/平均持仓日），CSV 留档 `data/processed/backtests/`。
+  （交易数/胜率/平均收益/最大回撤/平均持仓日），Excel 留档 `data/processed/backtests/`。
 - 超短以”当日排板成交”为假设，属偏乐观上限（涨停封死未必买得到），实盘可成交性需自行打折。
 
 ---
@@ -155,7 +155,7 @@ python backtest.py --start 2020-06-01      # 自定义起点
 
 - **永久缓存**：每股一个 `data/raw/{code}.parquet`，单股失败互不影响。
 - **元数据 `_meta.json`**：记录每股最新日期/行数，启动秒级判断是否增量，可从 parquet 重建。
-- **股票列表 `_stock_list.csv`**：缓存 7 天，接口失败自动回退过期缓存；
+- **股票列表 `_stock_list.xlsx`**：缓存 7 天，接口失败自动回退过期缓存；
   **无论在线还是读缓存，返回前都强制“剔 ST/退市 + 仅主板(60/00)”**（当前干净主板非 ST 约 3050 只）。
 - **因子缓存** `factor_data.parquet`：数据未变直接复用，盘中临时数据不写缓存。
 - **增量**：本地最新日期之后才下载；工作日 1 天窗口、周末 3 天窗口；盘前空下载不更新元数据。

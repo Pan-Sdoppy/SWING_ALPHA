@@ -55,8 +55,10 @@ def _maps():
     return name_map, ind_map
 
 
-def build_signals(backend: str, start: str, codes: Optional[List[str]] = None):
-    """全历史构建一次面板（因果因子），逐日扫描，返回 panel 与 {date: [(code,score,...)]}。"""
+def build_signals(backend: str, start: str, codes: Optional[List[str]] = None,
+                  bypass_season: bool = False):
+    """全历史构建一次面板（因果因子），逐日扫描，返回 panel 与 {date: [(code,score,...)]}。
+    bypass_season=True 时绕过冬天/门控过滤（实验用：不区分大盘四季每天都买）。"""
     name_map, ind_map = _maps()
     use_codes = codes if codes else sorted(name_map.keys())
     dfs = factors.load_all_stock_dfs(use_codes)
@@ -80,7 +82,7 @@ def build_signals(backend: str, start: str, codes: Optional[List[str]] = None):
         for d in tqdm(trade_dates, ncols=88, desc="逐日信号"):
             panel.asof = d
             snap = market_snapshot(panel, d)
-            du = scan_ultra_short(panel, snap, mode="after", minute_info={})
+            du = scan_ultra_short(panel, snap, mode="after", minute_info={}, show_all=bypass_season)
             if len(du):
                 u = du[(du["信号"] == "早餐·压力位")
                        & (du["A1压力位"].astype(str).str.startswith("命中"))
@@ -88,7 +90,7 @@ def build_signals(backend: str, start: str, codes: Optional[List[str]] = None):
                 if len(u):
                     ultra[d] = sorted(zip(u["代码"], u["评分"]),
                                       key=lambda z: -float(z[1]))
-            ds = scan_swing(panel, snap, mode="after")
+            ds = scan_swing(panel, snap, mode="after", show_all=bypass_season)
             if len(ds):
                 s = ds[ds["建议"].astype(str).str.contains("可低吸|深跌低吸")]
                 if len(s):
@@ -163,8 +165,10 @@ class _Slot:
     pending: Optional[dict] = None
 
 
-def _manage_position(panel, slot: _Slot, k: int, last: int, variant: str):
-    """对持仓在第 k 天做止损/退出判定；返回当日平仓的 trade 片段或 None。"""
+def _manage_position(panel, slot: _Slot, k: int, last: int, variant: str,
+                     first_day_loss_exit: bool = False):
+    """对持仓在第 k 天做止损/退出判定；返回当日平仓的 trade 片段或 None。
+    first_day_loss_exit=True 时，入场当天若收盘<入场价，当天平仓（实验用）。"""
     pos = slot.pos
     if pos is None:
         return None
@@ -173,6 +177,10 @@ def _manage_position(panel, slot: _Slot, k: int, last: int, variant: str):
                    panel.f["close"][i], panel.f["open"][i])
     VOL, VMA5, PCT = panel.f["volume"][i], panel.f["vma5"][i], panel.f["pctChg"][i]
     exit_px, reason = None, None
+
+    # 0) 首日亏损即平仓（实验：入场当天收盘<入场价则当天走）
+    if first_day_loss_exit and k == pos["entry_idx"] and np.isfinite(C[k]) and C[k] < pos["entry_px"]:
+        exit_px, reason = float(C[k]), "首日亏损平仓"
 
     # 更新持仓峰值（用于移动止损）
     if np.isfinite(H[k]) and H[k] > 0:
@@ -244,7 +252,7 @@ def _manage_position(panel, slot: _Slot, k: int, last: int, variant: str):
 
 
 def simulate_swing(panel, dates, trade_dates, gidx, code_i, signals,
-                   topn: int, variant: str):
+                   topn: int, variant: str, first_day_loss_exit: bool = False):
     last = len(dates) - 1
     g0 = gidx[trade_dates[0]]
     slots = [_Slot(cash=1.0 / topn, init=1.0 / topn) for _ in range(topn)]
@@ -303,7 +311,8 @@ def simulate_swing(panel, dates, trade_dates, gidx, code_i, signals,
                     s.pending = None  # 连续停牌，撤单
         # 2) 持仓管理（含当日新开仓）
         for s in slots:
-            tr = _manage_position(panel, s, k, last, variant)
+            tr = _manage_position(panel, s, k, last, variant,
+                                   first_day_loss_exit=first_day_loss_exit)
             if tr is not None:
                 trades.append(tr)
         # 3) 收盘出信号，分配给空闲分槽（次日开盘成交）
@@ -385,16 +394,6 @@ def _breakdown(strategy, param, trades, curve_dates, eq, periods):
     return rows
 
 
-def _grid_row(strategy, param, trades, curve_dates, eq):
-    st = _trade_stats(pd.DataFrame(trades))
-    cm = _curve_metrics(curve_dates, eq)
-    return dict(策略=strategy, 参数=param, 交易数=st["n"], 胜率pct=st["win"],
-                平均每笔pct=st["avg"], 中位每笔pct=st["median"], 盈亏比=st["pf"],
-                总收益pct=cm["total"] * 100, 年化pct=cm["cagr"] * 100,
-                最大回撤pct=cm["maxdd"] * 100, 夏普=cm["sharpe"],
-                平均持仓日=st["hold"])
-
-
 def _periods(latest: str):
     latest_y = int(latest[:4])
     years = [str(y) for y in range(2017, latest_y + 1)]
@@ -406,10 +405,11 @@ def _periods(latest: str):
 
 
 def run_backtest(force_cpu: bool = False, codes: Optional[List[str]] = None,
-                 start: str = BT["start"]):
+                 start: str = BT["start"], bypass_season: bool = False,
+                 first_day_loss_exit: bool = False):
     backend = accel.detect_backend(force_cpu=force_cpu)
     panel, dates, trade_dates, gidx, code_i, ultra_sig, swing_sig = build_signals(
-        backend, start, codes)
+        backend, start, codes, bypass_season=bypass_season)
     if not trade_dates:
         raise RuntimeError("回测区间内无交易日（是否忘了回填历史数据？）")
     latest = trade_dates[-1]
@@ -434,7 +434,8 @@ def run_backtest(force_cpu: bool = False, codes: Optional[List[str]] = None,
 
     # 波段
     trades_s, cd_s, eq_s, cancelled = simulate_swing(panel, dates, trade_dates, gidx,
-                                                       code_i, swing_sig, 3, "bigbar")
+                                                       code_i, swing_sig, 3, "bigbar",
+                                                       first_day_loss_exit=first_day_loss_exit)
     for tr in trades_s:
         tr.update(strategy="波段", param=SWING_PARAM)
     trade_dump += [{**tr, "策略": "波段", "参数": SWING_PARAM} for tr in trades_s]
@@ -444,21 +445,47 @@ def run_backtest(force_cpu: bool = False, codes: Optional[List[str]] = None,
     trades_df = pd.DataFrame(trade_dump)
 
     ts = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-    bp = BACKTEST_DIR / f"年度月度_{latest}_{ts}.csv"
-    tp = BACKTEST_DIR / f"全部交易_{latest}_{ts}.csv"
-    bd_df.to_csv(bp, index=False, encoding="utf-8-sig")
-    trades_df.to_csv(tp, index=False, encoding="utf-8-sig")
+    bp = BACKTEST_DIR / f"年度月度_{latest}_{ts}.xlsx"
+    tp = BACKTEST_DIR / f"全部交易_{latest}_{ts}.xlsx"
+    bd_df.to_excel(bp, index=False)
+    trades_df.to_excel(tp, index=False)
 
-    # ---- 控制台输出：只打印年度/月度明细 ----
+    # ---- 总体汇总（全区间） ----
+    def _overall(strategy, param, trades, curve_dates, eq):
+        st = _trade_stats(pd.DataFrame(trades))
+        cm = _curve_metrics(curve_dates, eq)
+        return dict(策略=strategy, 参数=param, 交易数=st["n"],
+                    胜率pct=round(st["win"], 2), 平均收益pct=round(st["avg"], 2),
+                    总收益率pct=round(cm["total"] * 100, 2),
+                    年化pct=round(cm["cagr"] * 100, 2) if np.isfinite(cm["cagr"]) else "-",
+                    最大回撤pct=round(cm["maxdd"] * 100, 2),
+                    盈亏比=round(st["pf"], 2) if np.isfinite(st["pf"]) else "-",
+                    夏普=round(cm["sharpe"], 2),
+                    平均持仓日=round(st["hold"], 1))
+
+    overall_rows = [
+        _overall("超短", ULTRA_PARAM, trades_u, cd_u, eq_u),
+        _overall("波段", SWING_PARAM, trades_s, cd_s, eq_s),
+    ]
+    overall_df = pd.DataFrame(overall_rows)
+
+    # ---- 控制台输出 ----
+    exp_tag = []
+    if bypass_season:
+        exp_tag.append("无季节过滤(每天买)")
+    if first_day_loss_exit:
+        exp_tag.append("波段首日亏损即平仓")
+    exp_str = f"｜实验:{' + '.join(exp_tag)}" if exp_tag else ""
     print("\n" + "#" * 100)
     print(f"# 回测 {trade_dates[0]} ~ {latest}｜成本(买{BUY_COST*100:.2f}%/卖{SELL_COST*100:.2f}%)"
-          f"｜超短={ULTRA_PARAM} 次日开盘卖，波段={SWING_PARAM} 放量大阳退出")
+          f"｜超短={ULTRA_PARAM} 次日开盘卖，波段={SWING_PARAM} 放量大阳退出{exp_str}")
     print("#" * 100)
     log.info(f"波段 t+1 开盘破位放弃成交 {cancelled} 次（低吸条件破坏，不进场）")
+    report.show(overall_df, f"【总体汇总】全区间 {trade_dates[0]} ~ {latest}", n=10)
     report.show(bd_df[bd_df["策略"] == "超短"],
                 f"【超短·隔日套利】{ULTRA_PARAM} 年度与2026逐月明细", n=40)
     report.show(bd_df[bd_df["策略"] == "波段"],
                 f"【波段·A杀低吸】{SWING_PARAM} 年度与2026逐月明细", n=40)
     log.info(f"回测结果已留档：{bp.name} / {tp.name}")
-    return dict(breakdown=bd_df, trades=trades_df,
+    return dict(breakdown=bd_df, trades=trades_df, overall=overall_df,
                 paths=dict(breakdown=str(bp), trades=str(tp)))

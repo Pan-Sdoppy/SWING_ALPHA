@@ -17,7 +17,7 @@ BACKTEST_DIR = PROCESSED_DIR / "backtests"
 LOG_DIR = ROOT / "logs"
 
 META_PATH = RAW_DIR / "_meta.json"
-STOCK_LIST_PATH = RAW_DIR / "_stock_list.csv"
+STOCK_LIST_PATH = RAW_DIR / "_stock_list.xlsx"
 FACTOR_CACHE = PROCESSED_DIR / "factor_data.parquet"
 SPOT_CACHE = INTRADAY_DIR / "_spot_latest.parquet"
 

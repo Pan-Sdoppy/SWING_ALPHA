@@ -81,17 +81,23 @@ def run_predict(force_cpu: bool = False, spot_cache: bool = False,
             tt = (pd.to_datetime(spot["ticktime"].dropna().astype(str).str[-8:],
                                  format="%H:%M:%S", errors="coerce"))
             now_min = datetime.now().hour * 60 + datetime.now().minute
+            # 午休时段(11:30-13:00)：快照时间戳停在11:30属正常，以此为基准判断新鲜度
+            if 11 * 60 + 30 <= now_min < 13 * 60:
+                expected_min = 11 * 60 + 30
+            else:
+                expected_min = now_min
             fresh = False
             if len(tt):
                 hhmm = tt.dt.hour * 60 + tt.dt.minute
                 med = int(hhmm.median())
-                # 盘中（上午9:30-11:30/下午13:00-15:00）且时间戳与当前相差≤20分钟
-                fresh = abs(med - now_min) <= 20
+                # 盘中（上午9:30-11:30/下午13:00-15:00）且时间戳与期望时刻相差≤20分钟
+                fresh = abs(med - expected_min) <= 20
             if fresh:
                 mode = "intraday"
                 asof = datetime.now().strftime("%Y-%m-%d")
             else:
-                log.warning("快照时间戳非盘中实时（疑似节假日/休市），按盘后存量数据处理")
+                log.warning(f"快照时间戳非盘中实时（中位数{med//60:02d}:{med%60:02d}，"
+                            f"期望{expected_min//60:02d}:{expected_min%60:02d}），按盘后存量数据处理")
                 spot = None
         elif spot is not None and len(spot):
             mode = "intraday"
